@@ -22,10 +22,17 @@ class EconAgent:
         self.settings = settings
         self.logger = logger or logging.getLogger("github_project_analyzer.econ_agent")
 
-    def generate(self, repo_payload: dict[str, Any], profile_markdown: str) -> str:
+    def generate(
+        self,
+        repo_payload: dict[str, Any],
+        profile_markdown: str,
+        code_insight_markdown: str,
+        code_insight_payload: dict[str, Any] | None = None,
+    ) -> str:
         self.logger.info("state=START | agent=econ_agent | 开始生成工程经济报告")
         facts = extract_project_facts(repo_payload)
         facts_json = json.dumps(facts, ensure_ascii=False, indent=2)
+        code_payload_json = json.dumps(code_insight_payload or {}, ensure_ascii=False, indent=2)
 
         user_prompt = f"""
 请基于仓库事实与项目技术名片，撰写一篇“工程经济与项目管理分析报告”初稿。
@@ -43,12 +50,19 @@ class EconAgent:
    ## 四、辩证讨论与改进路径
    ## 结语
 6. 不使用列表符号，正文必须全部写成段落。
+7. 必须显式引用代码级证据（目录树信号、依赖密度、复杂度估计、测试目录信号、潜在硬编码风险），不得仅做泛化概念讨论。
 
 仓库事实：
 {facts_json}
 
 项目技术名片：
 {profile_markdown}
+
+代码级洞察摘要：
+{code_insight_markdown}
+
+代码级结构化证据（JSON）：
+{code_payload_json}
 """.strip()
 
         result_raw = self.client.ask(
@@ -59,8 +73,12 @@ class EconAgent:
         ).strip()
         result = sanitize_report_markdown(result_raw)
         self.logger.info(
-            "state=DONE | agent=econ_agent | profile_chars=%s | output_chars_raw=%s | output_chars_clean=%s",
+            (
+                "state=DONE | agent=econ_agent | profile_chars=%s | code_insight_chars=%s | "
+                "output_chars_raw=%s | output_chars_clean=%s"
+            ),
             len(profile_markdown),
+            len(code_insight_markdown),
             len(result_raw),
             len(result),
         )

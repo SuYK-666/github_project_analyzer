@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from agents.context_profiler import ContextProfilerAgent
+from agents.code_insight_agent import CodeInsightAgent
 from agents.crawler_agent import CrawlerAgent
 from agents.critic_agent import CriticAgent
 from agents.econ_agent import EconAgent
@@ -43,6 +44,11 @@ class Orchestrator:
             client=self.deepseek_client,
             settings=self.settings,
             logger=self.logger.getChild("context_profiler"),
+        )
+        self.code_insight_agent = CodeInsightAgent(
+            client=self.deepseek_client,
+            settings=self.settings,
+            logger=self.logger.getChild("code_insight_agent"),
         )
         self.econ_agent = EconAgent(
             client=self.deepseek_client,
@@ -137,6 +143,18 @@ class Orchestrator:
             state="DONE",
         )
 
+        self._log("开始生成代码级洞察摘要...", agent="code_insight_agent", state="RUNNING")
+        code_insight_result = self.code_insight_agent.analyze(
+            repo_payload=repo_payload,
+            analysis_label=analysis_label,
+        )
+        self._write_cache("03_code_insight", code_insight_result)
+        self._log(
+            f"代码级洞察完成 | 字符数={len(code_insight_result.get('code_insight_markdown', ''))}",
+            agent="code_insight_agent",
+            state="DONE",
+        )
+
         self._log(
             f"开始生成 {analysis_label} 报告初稿...",
             agent=f"{normalized_type}_agent",
@@ -146,11 +164,15 @@ class Orchestrator:
             report_markdown = self.econ_agent.generate(
                 repo_payload=repo_payload,
                 profile_markdown=profile_result["profile_markdown"],
+                code_insight_markdown=code_insight_result["code_insight_markdown"],
+                code_insight_payload=code_insight_result,
             )
         else:
             report_markdown = self.ethics_agent.generate(
                 repo_payload=repo_payload,
                 profile_markdown=profile_result["profile_markdown"],
+                code_insight_markdown=code_insight_result["code_insight_markdown"],
+                code_insight_payload=code_insight_result,
             )
         self._log(
             f"初稿生成完成 | 字符数={len(report_markdown)}",
@@ -159,7 +181,7 @@ class Orchestrator:
         )
 
         self._write_cache(
-            "03_draft_report",
+            "04_draft_report",
             {
                 "analysis_type": normalized_type,
                 "analysis_label": analysis_label,
@@ -201,7 +223,7 @@ class Orchestrator:
                 }
             )
             self._write_cache(
-                f"04_critic_round_{round_index}",
+                f"05_critic_round_{round_index}",
                 {
                     "review": review,
                     "report_markdown": final_report,
@@ -314,8 +336,10 @@ class Orchestrator:
             "selected_critic_incomplete": selected_incomplete,
             "selected_critic_prompt_leakage": selected_prompt_leakage,
             "raw_cache_path": repo_payload.get("raw_cache_path", ""),
+            "code_insight_markdown": code_insight_result.get("code_insight_markdown", ""),
+            "code_insight_payload": code_insight_result,
         }
-        final_state_path = self._write_cache("05_final_state", final_state)
+        final_state_path = self._write_cache("06_final_state", final_state)
         self._log(
             f"任务结束 | final_state_path={final_state_path}",
             agent="orchestrator",

@@ -57,3 +57,16 @@ def sanitize_report_markdown(markdown_text: str) -> str:
     text = _remove_prompt_leak_lines(markdown_text)
     text = _trim_to_first_heading(text, [r"^##\s*引言\s*$", r"^#\s*引言\s*$"])
     return text.strip()
+
+
+def sanitize_code_insight_markdown(markdown_text: str) -> str:
+    text = _remove_prompt_leak_lines(markdown_text)
+    text = _trim_to_first_heading(
+        text,
+        [
+            r"^##\s*代码级洞察摘要\s*$",
+            r"^#\s*代码级洞察摘要\s*$",
+            r"^###\s*架构与模块化观察\s*$",
+        ],
+    )
+    return text.strip()

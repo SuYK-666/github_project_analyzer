@@ -135,6 +135,209 @@ class CrawlerAgent:
         )
         return 0, "", {}
 
+    @staticmethod
+    def _detect_language_by_path(path: str) -> str:
+        lowered = path.lower()
+        mapping = {
+            ".py": "python",
+            ".js": "javascript",
+            ".ts": "typescript",
+            ".tsx": "typescript",
+            ".jsx": "javascript",
+            ".java": "java",
+            ".go": "go",
+            ".rs": "rust",
+            ".cpp": "cpp",
+            ".cc": "cpp",
+            ".cxx": "cpp",
+            ".c": "c",
+            ".cs": "csharp",
+            ".rb": "ruby",
+            ".php": "php",
+            ".kt": "kotlin",
+            ".swift": "swift",
+        }
+        for suffix, lang in mapping.items():
+            if lowered.endswith(suffix):
+                return lang
+        return "unknown"
+
+    @staticmethod
+    def _is_manifest_path(path: str) -> bool:
+        lowered = path.lower().strip()
+        if lowered.endswith("requirements.txt"):
+            return True
+        if lowered.endswith("package.json"):
+            return True
+        if lowered.endswith("pom.xml"):
+            return True
+        if lowered.endswith("go.mod"):
+            return True
+        if lowered.endswith("pyproject.toml"):
+            return True
+        return False
+
+    @staticmethod
+    def _is_source_file(path: str) -> bool:
+        lowered = path.lower().strip()
+        if any(
+            lowered.endswith(ext)
+            for ext in (
+                ".py",
+                ".js",
+                ".ts",
+                ".tsx",
+                ".jsx",
+                ".java",
+                ".go",
+                ".rs",
+                ".cpp",
+                ".cc",
+                ".cxx",
+                ".c",
+                ".cs",
+                ".rb",
+                ".php",
+                ".kt",
+                ".swift",
+            )
+        ):
+            return True
+        return False
+
+    @staticmethod
+    def _tree_item_score(path: str) -> int:
+        lowered = path.lower()
+        score = 0
+
+        if "/src/" in f"/{lowered}/" or lowered.startswith("src/"):
+            score += 6
+        if "/core/" in f"/{lowered}/" or "/service/" in f"/{lowered}/":
+            score += 4
+        if lowered.endswith("main.py") or lowered.endswith("main.ts") or lowered.endswith("main.go"):
+            score += 7
+        if "app" in lowered or "server" in lowered:
+            score += 3
+        if lowered.endswith("index.js") or lowered.endswith("index.ts"):
+            score += 3
+        if "/test/" in f"/{lowered}/" or "/tests/" in f"/{lowered}/":
+            score -= 4
+        if "/docs/" in f"/{lowered}/" or lowered.startswith("docs/"):
+            score -= 5
+        if lowered.endswith(".min.js"):
+            score -= 5
+        return score
+
+    def _fetch_text_file_by_raw_url(self, raw_url: str) -> str:
+        status, content, _ = self._request_text(raw_url)
+        if status != 200:
+            return ""
+        return normalize_markdown(content, max_chars=18000)
+
+    def _fetch_repo_tree(self, owner: str, repo: str, default_branch: str) -> list[dict[str, Any]]:
+        endpoint = f"/repos/{owner}/{repo}/git/trees/{default_branch}"
+        payload = self._request_json(endpoint, params={"recursive": "1"})
+        tree = payload.get("tree", []) if isinstance(payload, dict) else []
+
+        normalized: list[dict[str, Any]] = []
+        for item in tree:
+            if not isinstance(item, dict):
+                continue
+            normalized.append(
+                {
+                    "path": str(item.get("path", "")),
+                    "type": str(item.get("type", "")),
+                    "size": int(item.get("size", 0) or 0),
+                    "sha": str(item.get("sha", "")),
+                }
+            )
+        return normalized
+
+    def _fetch_manifest_files(
+        self,
+        owner: str,
+        repo: str,
+        default_branch: str,
+        repo_tree: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        manifests: list[dict[str, Any]] = []
+
+        for item in repo_tree:
+            path = str(item.get("path", ""))
+            item_type = str(item.get("type", ""))
+            if item_type != "blob":
+                continue
+            if not self._is_manifest_path(path):
+                continue
+
+            raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{default_branch}/{path}"
+            content = self._fetch_text_file_by_raw_url(raw_url)
+            manifests.append(
+                {
+                    "path": path,
+                    "raw_url": raw_url,
+                    "content": content,
+                }
+            )
+
+        manifests.sort(key=lambda row: row.get("path", ""))
+        return manifests[:12]
+
+    def _fetch_sampled_core_files(
+        self,
+        owner: str,
+        repo: str,
+        default_branch: str,
+        repo_tree: list[dict[str, Any]],
+        max_files: int = 5,
+    ) -> list[dict[str, Any]]:
+        candidates: list[tuple[int, dict[str, Any]]] = []
+
+        for item in repo_tree:
+            path = str(item.get("path", ""))
+            item_type = str(item.get("type", ""))
+            if item_type != "blob":
+                continue
+            if not self._is_source_file(path):
+                continue
+
+            score = self._tree_item_score(path)
+            size = int(item.get("size", 0) or 0)
+            if 0 < size < 50000:
+                score += 2
+            if size > 120000:
+                score -= 3
+
+            candidates.append((score, item))
+
+        candidates.sort(key=lambda row: (row[0], -len(str(row[1].get("path", "")))), reverse=True)
+
+        sampled: list[dict[str, Any]] = []
+        used_paths: set[str] = set()
+        for _, item in candidates:
+            path = str(item.get("path", ""))
+            if not path or path in used_paths:
+                continue
+
+            raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{default_branch}/{path}"
+            content = self._fetch_text_file_by_raw_url(raw_url)
+            if not content:
+                continue
+
+            sampled.append(
+                {
+                    "path": path,
+                    "raw_url": raw_url,
+                    "language": self._detect_language_by_path(path),
+                    "content": content,
+                }
+            )
+            used_paths.add(path)
+            if len(sampled) >= max_files:
+                break
+
+        return sampled
+
     def _fetch_readme(self, owner: str, repo: str) -> str:
         try:
             payload = self._request_json(f"/repos/{owner}/{repo}/readme")
@@ -230,6 +433,10 @@ class CrawlerAgent:
             "topics": [],
         }
 
+        repo_tree: list[dict[str, Any]] = []
+        manifest_files: list[dict[str, Any]] = []
+        sampled_core_files: list[dict[str, Any]] = []
+
         payload = {
             "repo_url": repo_url,
             "owner": owner,
@@ -240,6 +447,9 @@ class CrawlerAgent:
             "languages": {},
             "issues": [],
             "top_contributors": [],
+            "repo_tree": repo_tree,
+            "manifest_files": manifest_files,
+            "sampled_core_files": sampled_core_files,
             "data_source": "github_web_fallback",
             "fallback_reason": fallback_reason,
         }
@@ -321,6 +531,22 @@ class CrawlerAgent:
                 params={"per_page": 30},
             )
 
+            default_branch = str((repository or {}).get("default_branch", "main") or "main")
+            repo_tree = self._fetch_repo_tree(owner=owner, repo=repo, default_branch=default_branch)
+            manifest_files = self._fetch_manifest_files(
+                owner=owner,
+                repo=repo,
+                default_branch=default_branch,
+                repo_tree=repo_tree,
+            )
+            sampled_core_files = self._fetch_sampled_core_files(
+                owner=owner,
+                repo=repo,
+                default_branch=default_branch,
+                repo_tree=repo_tree,
+                max_files=5,
+            )
+
             payload = {
                 "repo_url": f"https://github.com/{owner}/{repo}",
                 "owner": owner,
@@ -333,18 +559,27 @@ class CrawlerAgent:
                 "top_contributors": self._simplify_contributors(
                     contributors_raw if isinstance(contributors_raw, list) else []
                 ),
+                "repo_tree": repo_tree,
+                "manifest_files": manifest_files,
+                "sampled_core_files": sampled_core_files,
                 "data_source": "github_api",
             }
 
             cache_path = self._cache_raw_payload(owner=owner, repo=repo, payload=payload)
             payload["raw_cache_path"] = str(cache_path)
             self.logger.info(
-                "state=DONE | agent=crawler_agent | full_name=%s/%s | readme_chars=%s | issues=%s | contributors=%s",
+                (
+                    "state=DONE | agent=crawler_agent | full_name=%s/%s | readme_chars=%s | "
+                    "issues=%s | contributors=%s | tree=%s | manifests=%s | sampled_core_files=%s"
+                ),
                 owner,
                 repo,
                 len(readme),
                 len(payload["issues"]),
                 len(payload["top_contributors"]),
+                len(repo_tree),
+                len(manifest_files),
+                len(sampled_core_files),
             )
             return payload
         except GitHubCrawlerError as exc:

@@ -16,6 +16,7 @@
 
 - [核心亮点](#核心亮点)
 - [系统架构](#系统架构)
+- [代码级洞察能力](#代码级洞察能力)
 - [快速开始](#快速开始)
 - [运行方式](#运行方式)
 - [配置项说明](#配置项说明)
@@ -28,9 +29,10 @@
 
 ## 核心亮点
 
-- 多智能体流水线：Crawler -> Context Profiler -> Domain Agent -> Critic -> Renderer
+- 多智能体流水线：Crawler -> Context Profiler -> Code Insight -> Domain Agent -> Critic -> Renderer
 - 双方向专精：单次任务只输出一个方向，避免内容混杂
 - 三格式一致交付：MD、HTML、DOCX 基于同一语义源渲染
+- 代码级洞察增强：目录树 + 依赖清单 + 核心源码采样 + 轻量静态指标（复杂度/疑似密钥）
 - One-Page Web 交互：输入配置、过程反馈、报告预览、文件下载在一页完成
 - 实时监控更稳：SSE 实时流 + 轮询兜底，避免前端误判任务状态
 - 质量门禁：Critic 最多 3 轮评审，达标提前结束，满轮选优
@@ -62,6 +64,7 @@ Flask WebApp
 Orchestrator
   |- CrawlerAgent           GitHub 数据抓取 / 限流兜底
   |- ContextProfilerAgent   项目技术名片与事实锚点
+      |- CodeInsightAgent       目录树/依赖/源码采样与代码级洞察
   |- Econ/Ethics Agent      方向化初稿生成
   |- CriticAgent            评分、残缺检测、泄露检测、重写
   |- ReportRenderer         MD / HTML / DOCX 渲染
@@ -74,14 +77,15 @@ Artifacts + Cache + Logs
 
 ## 功能矩阵
 
-| 模块             | 能力                                        | 工程特性                                         |
-| ---------------- | ------------------------------------------- | ------------------------------------------------ |
-| Crawler          | 仓库元数据、README、语言、Issue、贡献者抓取 | API 失败重试、Rate Limit 自动降级到 Web Fallback |
-| Context Profiler | 生成项目技术名片与分析锚点                  | 事实驱动提示词、输出净化                         |
-| Domain Agent     | 生成 2000 字级方向化报告                    | 总分总结构、阶段化分析（启动/实施/运行）         |
-| Critic           | 自动审稿与重写驱动                          | 分数阈值、最多 3 轮、残缺与泄露硬失败            |
-| Renderer         | 输出 MD/HTML/DOCX                           | 三格式一致性、Word 规范化样式控制                |
-| Web UI           | 任务下发与过程可视化                        | SSE + Polling、实时步骤条、在线预览与下载        |
+| 模块 | 能力 | 工程特性 |
+| --- | --- | --- |
+| Crawler | 仓库元数据、README、语言、Issue、贡献者抓取 | Tree API、Manifest 抓取、核心源码采样、Rate Limit 降级 |
+| Context Profiler | 生成项目技术名片与分析锚点 | 事实驱动提示词、输出净化 |
+| Code Insight | 生成代码级洞察摘要 | 轻量静态指标、Map-Reduce 摘要、结构化证据输出 |
+| Domain Agent | 生成 2000 字级方向化报告 | 总分总结构、阶段化分析、代码级事实锚定 |
+| Critic | 自动审稿与重写驱动 | 分数阈值、最多 3 轮、残缺与泄露硬失败 |
+| Renderer | 输出 MD/HTML/DOCX | 三格式一致性、Word 规范化样式控制 |
+| Web UI | 任务下发与过程可视化 | SSE + Polling、实时步骤条、在线预览与下载 |
 
 ---
 
@@ -101,6 +105,7 @@ github_project_analyzer/
 │   ├── orchestrator.py
 │   ├── crawler_agent.py
 │   ├── context_profiler.py
+│   ├── code_insight_agent.py
 │   ├── econ_agent.py
 │   ├── ethics_agent.py
 │   └── critic_agent.py
@@ -208,7 +213,7 @@ CLI 可选参数：
 - API Key / GitHub Token 输入与显示切换
 - 本地记忆密钥（localStorage）
 - 分析方向卡片选择
-- 五阶段进度反馈（抓取、画像、初稿、质检、渲染）
+- 实时阶段反馈（抓取、画像、代码洞察、初稿、质检、渲染）
 - 运行日志实时显示（SSE）
 - 流中断自动降级轮询同步，避免误报失败
 - HTML 报告内嵌预览
@@ -218,23 +223,23 @@ CLI 可选参数：
 
 ## 配置项说明
 
-| 变量名                 | 默认值                                            | 说明                          |
-| ---------------------- | ------------------------------------------------- | ----------------------------- |
-| DEEPSEEK_API_KEY       | 空                                                | DeepSeek API Key              |
-| DEEPSEEK_BASE_URL      | [https://api.deepseek.com](https://api.deepseek.com) | DeepSeek API Base URL         |
-| DEEPSEEK_MODEL         | deepseek-chat                                     | 模型名                        |
-| GITHUB_TOKEN           | 空                                                | GitHub Token，建议填写        |
-| GITHUB_API_BASE_URL    | [https://api.github.com](https://api.github.com)     | GitHub API Base URL           |
-| OUTPUT_LANGUAGE        | zh-CN                                             | 输出语言                      |
-| REQUEST_TIMEOUT        | 60                                                | 请求超时（秒）                |
-| MAX_RETRY              | 3                                                 | 网络请求重试次数              |
-| TEMPERATURE            | 0.4                                               | 生成温度                      |
-| MAX_TOKENS             | 2800                                              | 单次生成 token 上限           |
-| MAX_RETRY_ROUNDS       | 3                                                 | Critic 最大轮次（系统封顶 3） |
-| REPORT_TARGET_CHARS    | 2000                                              | 报告目标字数                  |
-| REPORT_MIN_CHARS       | 1700                                              | 参考下限                      |
-| REPORT_MAX_CHARS       | 2600                                              | 参考上限                      |
-| CRITIC_SCORE_THRESHOLD | 8.0                                               | Critic 通过阈值               |
+| 变量名 | 默认值 | 说明 |
+| --- | --- | --- |
+| DEEPSEEK_API_KEY | 空 | DeepSeek API Key |
+| DEEPSEEK_BASE_URL | [https://api.deepseek.com](https://api.deepseek.com) | DeepSeek API Base URL |
+| DEEPSEEK_MODEL | deepseek-chat | 模型名 |
+| GITHUB_TOKEN | 空 | GitHub Token，建议填写 |
+| GITHUB_API_BASE_URL | [https://api.github.com](https://api.github.com) | GitHub API Base URL |
+| OUTPUT_LANGUAGE | zh-CN | 输出语言 |
+| REQUEST_TIMEOUT | 60 | 请求超时（秒） |
+| MAX_RETRY | 3 | 网络请求重试次数 |
+| TEMPERATURE | 0.4 | 生成温度 |
+| MAX_TOKENS | 2800 | 单次生成 token 上限 |
+| MAX_RETRY_ROUNDS | 3 | Critic 最大轮次（系统封顶 3） |
+| REPORT_TARGET_CHARS | 2000 | 报告目标字数 |
+| REPORT_MIN_CHARS | 1700 | 参考下限 |
+| REPORT_MAX_CHARS | 2600 | 参考上限 |
+| CRITIC_SCORE_THRESHOLD | 8.0 | Critic 通过阈值 |
 
 ---
 
@@ -248,8 +253,14 @@ CLI 可选参数：
 
 ### 中间缓存
 
-- data_workspace/raw_data：抓取原始数据
-- data_workspace/processed_cache：画像、初稿、每轮 Critic 结果、最终状态
+- data_workspace/raw_data：抓取原始数据（含目录树、manifest、核心源码采样）
+- data_workspace/processed_cache：
+      - 01_crawler_payload
+      - 02_context_profile
+      - 03_code_insight
+      - 04_draft_report
+      - 05_critic_round_*
+      - 06_final_state
 
 ### 运行日志
 
@@ -293,6 +304,31 @@ CLI 可选参数：
 3. 兜底模式通过公开页面 + README raw 地址继续分析
 
 说明：兜底模式可保持任务完成，但统计信息细节会少于 API 模式。
+
+---
+
+## 代码级洞察能力
+
+为解决“仅依赖 README 导致分析偏浅”的问题，当前版本已引入代码级证据链，并保持原有流水线稳定性。
+
+### 数据获取层（Crawler 扩展）
+
+- 目录树抓取：通过 Git Tree API 递归获取仓库结构
+- Manifest 抓取：自动识别并拉取 requirements.txt、package.json、pom.xml、go.mod、pyproject.toml
+- 核心源码采样：启发式抽取 3-5 个高价值文件（入口、核心模块、服务层等）
+
+### 洞察生成层（CodeInsightAgent）
+
+- 依赖分析：解析依赖数量、清单分布和关键依赖样本
+- 架构信号：结合目录树判断模块化与工程化程度（tests/docs/src/CI）
+- 轻量静态指标：估计复杂度并扫描疑似硬编码敏感信息
+- Map-Reduce 摘要：先按文件局部摘要，再汇总为可复用的代码级洞察
+
+### 报告赋能层（Econ/Ethics）
+
+- 工程经济方向可引用可维护性与技术债客观锚点
+- 伦理法规方向可引用依赖风险与代码安全治理锚点
+- 领域报告必须显式引用代码级证据，避免泛化空谈
 
 ---
 
