@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>GitHub Project Analyzer</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+    <main class="page-shell">
+        <section class="hero-banner" aria-label="页面标题与简介">
+            <h1>GitHub Project Analyzer</h1>
+            <p>基于多智能体协作的课程分析平台：输入仓库链接后，可选择工程经济与项目管理或伦理法规与工程安全方向，自动生成 HTML、Markdown、Word 三份一致报告。</p>
+        </section>
+
+        <section class="card api-card" id="apiCard">
+            <h2>全局配置</h2>
+            <div class="input-label">DeepSeek API 认证</div>
+            <div class="secure-input-wrap">
+                <span class="input-icon" aria-hidden="true">🔒</span>
+                <input id="apiKeyInput" class="text-input" type="password" placeholder="请输入您的 DeepSeek API Key" autocomplete="off">
+                <button id="toggleApiKeyBtn" class="eye-btn" type="button" aria-label="显示或隐藏 API Key">👁</button>
+            </div>
+
+            <div class="input-label token-label">GitHub Token（可选，用于避免 API 限流）</div>
+            <div class="secure-input-wrap">
+                <span class="input-icon" aria-hidden="true">🐙</span>
+                <input id="githubTokenInput" class="text-input" type="password" placeholder="请输入 GitHub Token（可选）" autocomplete="off">
+                <button id="toggleGithubTokenBtn" class="eye-btn" type="button" aria-label="显示或隐藏 GitHub Token">👁</button>
+            </div>
+
+            <label class="checkbox-row" for="rememberKey">
+                <input id="rememberKey" type="checkbox">
+                <span>记住密钥（保存在本地浏览器）</span>
+            </label>
+        </section>
+
+        <section class="card task-card" id="taskCard">
+            <h2>任务下发</h2>
+            <div class="input-label">GitHub 仓库地址</div>
+            <input id="repoUrlInput" class="text-input repo-input" type="url" placeholder="粘贴 GitHub 仓库链接 (例如: https://github.com/owner/repo)" autocomplete="off">
+
+            <div class="input-label">分析模块</div>
+            <div class="radio-card-grid" id="analysisCardGroup">
+                <label class="radio-card" for="analysisEcon">
+                    <input id="analysisEcon" type="radio" name="analysisType" value="econ" checked>
+                    <div class="radio-card-inner">
+                        <div class="radio-icon">📈</div>
+                        <div class="radio-title">经济与项目管理</div>
+                        <div class="radio-desc">侧重成本、敏捷、ROI分析</div>
+                    </div>
+                    <span class="radio-check">✓</span>
+                </label>
+
+                <label class="radio-card" for="analysisEthics">
+                    <input id="analysisEthics" type="radio" name="analysisType" value="ethics">
+                    <div class="radio-card-inner">
+                        <div class="radio-icon">🛡</div>
+                        <div class="radio-title">伦理与安全法规</div>
+                        <div class="radio-desc">侧重开源合规、漏洞治理、隐私安全</div>
+                    </div>
+                    <span class="radio-check">✓</span>
+                </label>
+            </div>
+
+            <button id="startBtn" class="primary-btn" type="button">开始智能分析</button>
+            <div id="statusHint" class="status-hint">待开始</div>
+        </section>
+
+        <section class="card monitor-card hidden" id="monitorSection">
+            <h2>过程反馈</h2>
+            <ol class="stepper" id="stepper">
+                <li class="step" data-step="1"><span class="step-dot"></span><span class="step-label">数据抓取</span></li>
+                <li class="step" data-step="2"><span class="step-dot"></span><span class="step-label">背景提炼</span></li>
+                <li class="step" data-step="3"><span class="step-dot"></span><span class="step-label">初稿生成</span></li>
+                <li class="step" data-step="4"><span class="step-dot"></span><span class="step-label">Critic 质检</span></li>
+                <li class="step" data-step="5"><span class="step-dot"></span><span class="step-label">排版渲染</span></li>
+            </ol>
+            <div class="progress-track">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <pre id="terminalBox" class="terminal-box" aria-live="polite"></pre>
+        </section>
+
+        <section class="card report-card hidden" id="reportSection">
+            <h2>HTML 报告预览</h2>
+            <iframe id="reportFrame" title="报告预览"></iframe>
+
+            <div class="download-actions">
+                <a id="downloadDocx" class="ghost-btn disabled" href="#" role="button">📄 下载 Word 版 (.docx)</a>
+                <a id="downloadHtml" class="ghost-btn disabled" href="#" role="button">🌐 下载网页版 (.html)</a>
+                <a id="downloadMd" class="ghost-btn disabled" href="#" role="button">📝 下载 Markdown 版 (.md)</a>
+            </div>
+        </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</body>
+</html>
